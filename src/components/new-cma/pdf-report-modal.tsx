@@ -278,21 +278,34 @@ export function PdfReportModal({
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start bg-[#242424] rounded-2xl p-5 border border-neutral-800">
               {/* Yandex Static Maps API location map */}
-              <div className="md:col-span-5 rounded-xl overflow-hidden border border-neutral-700 h-52 bg-neutral-900 flex items-center justify-center relative shadow-md">
-                <img
-                  src={
-                    process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
-                      ? `https://static-maps.yandex.ru/v1?text=${encodeURIComponent(targetProperty.address || 'Санкт-Петербург')}&size=600,280&z=14&l=map&apikey=${process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY}`
-                      : `https://static-maps.yandex.ru/1.x/?l=map&size=600,280&z=13&text=${encodeURIComponent(targetProperty.address || 'Санкт-Петербург')}`
-                  }
-                  alt="Карта Яндекса"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    // Fallback to stylized Yandex map background if API fails offline
-                    (e.target as HTMLElement).setAttribute('src', 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=600&auto=format&fit=crop&q=80');
-                  }}
-                />
-                <div className="absolute inset-0 bg-black/30 flex items-end p-2.5">
+              <div className="md:col-span-5 rounded-xl overflow-hidden border border-neutral-700 h-56 bg-neutral-900 flex items-center justify-center relative shadow-md">
+                {(() => {
+                  const rawMapAddress = (targetProperty.address || 'Москва')
+                    .split(/На карте|Шоурум|Офис продаж/i)[0]
+                    .replace(/(?:[А-Яа-яA-Za-z]+)\d+\s*мин.*/gi, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                  const encodedMapAddr = encodeURIComponent(rawMapAddress || 'Москва');
+                  const mapUrl = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
+                    ? `https://static-maps.yandex.ru/v1?text=${encodedMapAddr}&size=600,280&z=14&l=map&apikey=${process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY}`
+                    : `https://static-maps.yandex.ru/1.x/?l=map&size=600,280&z=13&text=${encodedMapAddr}`;
+
+                  return (
+                    <img
+                      src={mapUrl}
+                      alt="Карта Яндекса"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // Fallback to Yandex city map of Moscow if specific street geocode fails
+                        (e.target as HTMLElement).setAttribute(
+                          'src',
+                          'https://static-maps.yandex.ru/1.x/?l=map&size=600,280&z=11&text=%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0'
+                        );
+                      }}
+                    />
+                  );
+                })()}
+                <div className="absolute inset-0 bg-black/20 flex items-end p-2.5">
                   <span className="bg-neutral-900/90 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-400 border border-amber-500/30 flex items-center gap-1.5 backdrop-blur-sm shadow-md">
                     <MapPin className="w-3.5 h-3.5 text-amber-400" /> Яндекс Карта объекта
                   </span>
@@ -702,23 +715,25 @@ export function PdfReportModal({
               </div>
             </div>
 
-            {/* AUTHOR / AGENT FOOTER PROFILE CARD - STRICT END OF REPORT */}
-            <div className="pt-4 flex items-center justify-end">
-              <div className="bg-[#242424] rounded-2xl p-4 border border-neutral-700 flex items-center gap-4 text-xs max-w-md shadow-xl">
-                <div className="space-y-1 text-right">
-                  <div className="text-sm font-extrabold text-white">{authorName}</div>
-                  <div className="text-[11px] text-neutral-400 font-semibold">{authorPosition}</div>
-                  <div className="text-amber-400 font-bold">{authorPhone}</div>
-                  <div className="text-neutral-400 text-[10px]">{authorEmail}</div>
-                  <div className="text-sky-400 font-semibold text-[10px]">{authorTelegram}</div>
+            {/* AUTHOR / AGENT FOOTER PROFILE CARD - ENLARGED PHOTO & Sleek Layout */}
+            <div className="pt-6 flex items-center justify-end">
+              <div className="bg-[#242424] rounded-2xl p-5 border border-neutral-700 flex items-center gap-5 max-w-lg shadow-2xl">
+                <div className="space-y-1.5 text-right flex-1">
+                  <div className="text-base font-black text-white tracking-tight">{authorName}</div>
+                  <div className="text-xs text-neutral-400 font-bold">{authorPosition}</div>
+                  <div className="text-amber-400 font-extrabold text-sm pt-1">{authorPhone}</div>
+                  <div className="text-neutral-300 text-xs font-medium">{authorEmail}</div>
+                  {authorTelegram && (
+                    <div className="text-sky-400 font-bold text-xs">{authorTelegram}</div>
+                  )}
                 </div>
 
-                <div className="w-16 h-16 rounded-xl overflow-hidden border-2 border-amber-500/50 bg-neutral-800 shrink-0">
+                <div className="w-28 h-28 sm:w-32 sm:h-32 md:w-36 md:h-36 rounded-2xl overflow-hidden border-2 border-amber-500/70 bg-neutral-800 shrink-0 shadow-lg">
                   {authorPhoto ? (
                     <img src={authorPhoto} alt={authorName} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center font-bold text-lg text-amber-400 bg-amber-500/20">
-                      ХП
+                    <div className="w-full h-full flex items-center justify-center font-black text-2xl text-amber-400 bg-amber-500/20">
+                      {authorName ? authorName.split(' ').map((n) => n[0]).join('') : 'РИ'}
                     </div>
                   )}
                 </div>

@@ -393,7 +393,11 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
 
 function cleanCianAddress(addr: string): string {
   if (!addr) return '';
-  let cleaned = addr.replace(/\s+/g, ' ').trim();
+  let cleaned = addr
+    .split(/На карте|Шоурум|Офис продаж/i)[0]
+    .replace(/(?:[А-Яа-яA-Za-z]+)\d+\s*мин.*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (isCianTitle(cleaned)) return '';
   return cleaned;
 }
@@ -407,7 +411,7 @@ function isCianTitle(text: string): boolean {
     lower.startsWith('купить') ||
     lower.startsWith('снять') ||
     lower.startsWith('сдам') ||
-    (lower.includes('апартаменты') && !lower.includes('улиц') && !lower.includes('проспект'))
+    (lower.includes('апартаменты') && !lower.includes('улиц') && !lower.includes('проспект') && !lower.includes('дом') && !lower.includes('проезд'))
   );
 }
 
