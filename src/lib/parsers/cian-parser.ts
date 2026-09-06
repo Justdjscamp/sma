@@ -116,14 +116,17 @@ export async function parseCianUrl(url: string): Promise<ParseResult> {
 
 function extractFromCianJsonObject(offer: any, url: string, offerId: string): ParsedProperty {
   let price = Number(offer.bargainTerms?.priceRur || offer.priceRur || offer.bargainTerms?.price || 0);
-  let area = parseFloat(offer.totalArea || offer.area || 0);
+  let area = parseFloat(offer.totalArea || offer.area || offer.allArea || 0);
   let floor = Number(offer.floorNumber || offer.floor || 1);
   let totalFloors = Number(offer.building?.floorsCount || offer.floorsCount || 1);
   let rooms = Number(offer.roomsCount || offer.rooms || 1);
   let address = '';
 
   if (offer.geo?.address && Array.isArray(offer.geo.address)) {
-    address = offer.geo.address.map((a: any) => a.fullName || a.name).join(', ');
+    address = offer.geo.address
+      .filter((a: any) => a.type !== 'country')
+      .map((a: any) => a.fullName || a.name)
+      .join(', ');
   } else if (offer.geo?.userInput) {
     address = offer.geo.userInput;
   }
@@ -145,16 +148,16 @@ function extractFromCianJsonObject(offer: any, url: string, offerId: string): Pa
   const pricePerSqm = area > 0 ? Math.round(price / area) : 0;
 
   return {
-    address: address || extractAddressFromUrl(url) || `Объект ЦИАН №${offerId}`,
+    address: cleanCianAddress(address) || extractAddressFromUrl(url) || `г. Москва (Объект ЦИАН №${offerId})`,
     price: price || 0,
     area: area || 0,
-    pricePerSqm: (price && area) ? Math.round(price / area) : 0,
+    pricePerSqm,
     floor: floor || 1,
     totalFloors: totalFloors || 1,
     rooms: rooms || 1,
     renovation,
     buildingMaterial,
-    yearBuilt: Number(offer.building?.buildYear) || 2021,
+    yearBuilt: Number(offer.building?.buildYear) || 2023,
     photo: photo || '',
     viewsTotal: Number(offer.stats?.totalViews) || 0,
     viewsToday: Number(offer.stats?.dailyViews) || 0,
@@ -173,7 +176,7 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
   let totalFloors = 0;
   let renovation = 'Евроремонт';
   let buildingMaterial = 'Монолит-кирпич';
-  let yearBuilt = 2021;
+  let yearBuilt = 2023;
   let photo = '';
   let viewsTotal = 0;
   let viewsToday = 0;
@@ -184,6 +187,7 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
 
   if (ogImage) photo = ogImage;
 
+  // 1. Извлечение цены
   const priceMeta = $('meta[property="product:price:amount"]').attr('content') || $('meta[itemprop="price"]').attr('content');
   if (priceMeta) price = Number(priceMeta);
 
@@ -197,20 +201,23 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
     }
   }
 
+  // 2. Извлечение площади (исправлен regex)
   if (combinedMeta) {
-    const areaMatch = combinedMeta.match(/([\d[.,]+)\s*м²/i);
+    const areaMatch = combinedMeta.match(/([\d.,]+)\s*м²/i);
     if (areaMatch) {
       area = parseFloat(areaMatch[1].replace(',', '.'));
     }
   }
 
+  // 3. Извлечение адреса из ogTitle / meta
   if (ogTitle) {
-    const addrMatch = ogTitle.match(/в\s+([^,-]+(?:,[^,-]+)*)/i);
+    const addrMatch = ogTitle.match(/по адресу\s+([^|—]+)/i) || ogTitle.match(/в\s+([^|-]+(?:\([^)]+\))?)/i);
     if (addrMatch) {
-      address = addrMatch[1].trim();
+      address = cleanCianAddress(addrMatch[1].trim());
     }
   }
 
+  // 4. Поиск в скриптах JSON (_cianConfig / initialState)
   const scripts = $('script').toArray();
   for (const script of scripts) {
     const content = $(script).html() || '';
@@ -236,15 +243,20 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
 
           if (offer) {
             if (offer.bargainTerms?.priceRur && !price) price = Number(offer.bargainTerms.priceRur);
-            if (offer.totalArea && !area) area = parseFloat(offer.totalArea);
+            if ((offer.totalArea || offer.area || offer.allArea) && !area) {
+              area = parseFloat(offer.totalArea || offer.area || offer.allArea);
+            }
             if (offer.floorNumber && !floor) floor = Number(offer.floorNumber);
             if (offer.building?.floorsCount && !totalFloors) totalFloors = Number(offer.building.floorsCount);
             if (offer.roomsCount && !rooms) rooms = Number(offer.roomsCount);
             if (offer.geo?.address && !address) {
-              address = offer.geo.address.map((a: any) => a.fullName).join(', ');
+              address = cleanCianAddress(offer.geo.address.map((a: any) => a.fullName || a.name).join(', '));
             }
             if (offer.photos && offer.photos.length > 0 && !photo) {
               photo = offer.photos[0].fullUrl || offer.photos[0].url;
+            }
+            if (offer.building?.buildYear && yearBuilt === 2023) {
+              yearBuilt = Number(offer.building.buildYear);
             }
             if (offer.stats) {
               if (offer.stats.totalViews) viewsTotal = Number(offer.stats.totalViews);
@@ -256,6 +268,7 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
     }
   }
 
+  // 5. Поиск в JSON-LD
   if (!price || !area || !floor) {
     try {
       $('script[type="application/ld+json"]').each((_, el) => {
@@ -264,14 +277,35 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
         try {
           const json = JSON.parse(text);
           if (json.offers?.price && !price) price = Number(json.offers.price);
-          if (json.name && !address) address = json.name;
+          if (json.name && !address && !isCianTitle(json.name)) address = cleanCianAddress(json.name);
           if (json.image && !photo) photo = Array.isArray(json.image) ? json.image[0] : json.image;
           if (json.floorLevel && !floor) floor = Number(json.floorLevel);
           if (json.numberOfFloors && !totalFloors) totalFloors = Number(json.numberOfFloors);
+          if (json.floorSize?.value && !area) area = parseFloat(json.floorSize.value);
         } catch {}
       });
     } catch {}
   }
+
+  // 6. Парсинг конкретных блоков DOM карточки ЦИАН
+  $('[data-name="ObjectSummaryDescription"] [data-name="SummaryItem"], [data-name="SummaryInfo"] div, [data-name="ParentInfo"]').each((_, el) => {
+    const text = $(el).text().trim();
+    if (!area && text.includes('м²')) {
+      const m = text.match(/([\d.,]+)\s*м²/);
+      if (m) area = parseFloat(m[1].replace(',', '.'));
+    }
+    if ((!floor || !totalFloors) && text.includes('Этаж')) {
+      const m = text.match(/(\d+)\s*из\s*(\d+)/);
+      if (m) {
+        if (!floor) floor = parseInt(m[1], 10);
+        if (!totalFloors) totalFloors = parseInt(m[2], 10);
+      }
+    }
+    if (text.includes('Год постройки')) {
+      const m = text.match(/(\d{4})/);
+      if (m) yearBuilt = parseInt(m[1], 10);
+    }
+  });
 
   if (!price) {
     const priceText =
@@ -283,21 +317,40 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
   }
 
   if (!address) {
-    address =
+    const geoText =
       $('[data-name="Geo"]').text().trim() ||
       $('[data-name="AddressContainer"]').text().trim() ||
-      $('address').text().trim() ||
-      $('h1').text().trim();
+      $('[data-name="AddressItem"]').text().trim() ||
+      $('address').text().trim();
+
+    if (geoText && !isCianTitle(geoText)) {
+      address = cleanCianAddress(geoText);
+    }
   }
 
   const fullText = (ogTitle + ' ' + ogDesc + ' ' + $.text()).trim();
 
+  // Извлечение площади из полного текста страницы если все еще 0
+  if (!area) {
+    const areaMatch = fullText.match(/(?:Общая площадь|Площадь)[:\s]*([\d.,]+)\s*м²/i) || fullText.match(/([\d.,]+)\s*м²/i);
+    if (areaMatch) {
+      area = parseFloat(areaMatch[1].replace(',', '.'));
+    }
+  }
+
+  // Извлечение этажа только по строгому контексту "Этаж X из Y"
   if (!floor || !totalFloors) {
-    const fMatch = fullText.match(/(\d+)\s*(?:из|\/)\s*(\d+)\s*эт/i) || fullText.match(/Этаж[:\s]*(\d+)\s*из\s*(\d+)/i);
+    const fMatch = fullText.match(/Этаж[:\s]*(\d+)\s*(?:из|\/)\s*(\d+)/i) || fullText.match(/(\d+)\s*эт(?:аж)?\s*(?:из|\/)\s*(\d+)/i);
     if (fMatch) {
       if (!floor) floor = parseInt(fMatch[1], 10);
       if (!totalFloors) totalFloors = parseInt(fMatch[2], 10);
     }
+  }
+
+  // Извлечение года постройки
+  if (yearBuilt === 2023) {
+    const yMatch = fullText.match(/Год постройки[:\s]*(\d{4})/i) || fullText.match(/построен в\s*(\d{4})/i);
+    if (yMatch) yearBuilt = parseInt(yMatch[1], 10);
   }
 
   if (!rooms || rooms === 1) {
@@ -321,7 +374,7 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
   const pricePerSqm = (price > 0 && area > 0) ? Math.round(price / area) : 0;
 
   return {
-    address: address || extractAddressFromUrl(url) || 'Объект ЦИАН',
+    address: address || extractAddressFromUrl(url) || 'г. Москва (Объект ЦИАН)',
     price: price || 0,
     area: area || 0,
     pricePerSqm,
@@ -330,12 +383,32 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
     rooms: rooms || 1,
     renovation,
     buildingMaterial,
-    yearBuilt: yearBuilt || 2021,
+    yearBuilt: yearBuilt || 2023,
     photo: photo || '',
     viewsTotal: viewsTotal || 0,
     viewsToday: viewsToday || 0,
     source: 'cian',
   };
+}
+
+function cleanCianAddress(addr: string): string {
+  if (!addr) return '';
+  let cleaned = addr.replace(/\s+/g, ' ').trim();
+  if (isCianTitle(cleaned)) return '';
+  return cleaned;
+}
+
+function isCianTitle(text: string): boolean {
+  if (!text) return true;
+  const lower = text.toLowerCase();
+  return (
+    lower.startsWith('продаю') ||
+    lower.startsWith('продает') ||
+    lower.startsWith('купить') ||
+    lower.startsWith('снять') ||
+    lower.startsWith('сдам') ||
+    (lower.includes('апартаменты') && !lower.includes('улиц') && !lower.includes('проспект'))
+  );
 }
 
 function extractFromCianUrlString(url: string): ParsedProperty | null {
