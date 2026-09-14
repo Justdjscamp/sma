@@ -27,11 +27,37 @@ export function exportReportToExcel(report: Report) {
 
   // Section 2: Competitors
   csvContent += `СПИСОК АНАЛОГОВ И КОНКУРЕНТОВ (${competitors.length})\n`;
-  csvContent += `№;Адрес аналога;Цена (₽);Площадь (м²);Цена за м² (₽/м²);Этаж;Ремонт;Источник;Ссылка\n`;
+  csvContent += `№;Адрес аналога;Метка;Цена (₽);Площадь (м²);Цена за м² (₽/м²);Этаж;Ремонт;Источник;Ссылка\n`;
 
   competitors.forEach((c, idx) => {
-    csvContent += `${idx + 1};"${c.address.replace(/"/g, '""')}";${c.price};${c.area};${c.pricePerSqm};${c.floor}/${c.totalFloors};"${c.renovation || '—'}";${c.source || 'avito/cian'};"${c.url || ''}"\n`;
+    csvContent += `${idx + 1};"${c.address.replace(/"/g, '""')}";"${c.tag?.text || '—'}";${c.price};${c.area};${c.pricePerSqm};${c.floor}/${c.totalFloors};"${c.renovation || '—'}";${c.source || 'avito/cian'};"${c.url || ''}"\n`;
   });
+
+  if (report.adjustments) {
+    const adj = report.adjustments;
+    const total =
+      (adj.floorAdjustment || 0) +
+      (adj.renovationAdjustment || 0) +
+      (adj.competitorsAdjustment || 0) +
+      (adj.balconyAdjustment || 0) +
+      (adj.demandAdjustment || 0) +
+      (adj.legalAdjustment || 0);
+
+    csvContent += `\nСЕТКА КОРРЕКТИРОВОК\n`;
+    csvContent += `Параметр;Поправка (%)\n`;
+    csvContent += `Этаж;${adj.floorAdjustment}%\n`;
+    csvContent += `Ремонт;${adj.renovationAdjustment}%\n`;
+    csvContent += `Конкуренты в локации;${adj.competitorsAdjustment || 0}%\n`;
+    csvContent += `Балкон / лоджия;${adj.balconyAdjustment}%\n`;
+    csvContent += `Спрос по локации;${adj.demandAdjustment}%\n`;
+    csvContent += `Документы;${adj.legalAdjustment}%\n`;
+    csvContent += `Итоговая корректировка;${total}%\n`;
+  }
+
+  if (report.searchParamsDescription) {
+    csvContent += `\nПАРАМЕТРЫ ВЫБОРКИ АНАЛОГОВ\n`;
+    csvContent += `"${report.searchParamsDescription.replace(/"/g, '""')}"\n`;
+  }
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);

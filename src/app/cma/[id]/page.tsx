@@ -23,6 +23,7 @@ import {
   User,
   ShieldCheck,
   Building2,
+  FileText,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -44,9 +45,11 @@ export default function SingleReportPage({ params }: { params: Promise<{ id: str
   // Editable local state when viewing report
   const [targetProperty, setTargetProperty] = useState<Property | null>(null);
   const [competitors, setCompetitors] = useState<Property[]>([]);
+  const [searchParamsDescription, setSearchParamsDescription] = useState<string>('');
   const [adjustments, setAdjustments] = useState<CmaAdjustments>({
     floorAdjustment: 0,
-    renovationAdjustment: 5,
+    renovationAdjustment: 0,
+    competitorsAdjustment: 0,
     balconyAdjustment: 0,
     demandAdjustment: 0,
     legalAdjustment: 0,
@@ -59,6 +62,9 @@ export default function SingleReportPage({ params }: { params: Promise<{ id: str
         setReport(found);
         setTargetProperty(found.property);
         setCompetitors(found.competitors || []);
+        if (found.searchParamsDescription) {
+          setSearchParamsDescription(found.searchParamsDescription);
+        }
         if (found.adjustments) {
           setAdjustments(found.adjustments);
         }
@@ -156,6 +162,8 @@ export default function SingleReportPage({ params }: { params: Promise<{ id: str
         adjustments={adjustments}
         user={userProfile}
         reportId={reportId}
+        searchParamsDescription={searchParamsDescription || report.searchParamsDescription}
+        onUpdateSearchParamsDescription={setSearchParamsDescription}
       />
 
       <div className="px-4 md:px-8 py-6 md:py-8 max-w-7xl mx-auto space-y-8">
@@ -204,6 +212,29 @@ export default function SingleReportPage({ params }: { params: Promise<{ id: str
               adjustments={adjustments}
               onChange={setAdjustments}
             />
+
+            {/* Editable Search Parameters Description */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-[0_2px_12px_-3px_rgba(0,0,0,0.05)] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-amber-600" />
+                    Параметры выборки аналогов (для отчёта PDF)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Редактируемый блок «В районе X объектов с параметрами: ...» для страницы анализа конкурентов
+                  </p>
+                </div>
+              </div>
+
+              <textarea
+                rows={5}
+                value={searchParamsDescription || report.searchParamsDescription || ''}
+                onChange={(e) => setSearchParamsDescription(e.target.value)}
+                placeholder="Укажите критерии выборки аналогов..."
+                className="w-full text-xs p-3.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600 transition-all font-mono leading-relaxed text-slate-800"
+              />
+            </div>
 
             <CompetitorsSection
               competitors={competitors}

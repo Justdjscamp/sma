@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { DEMO_ACCOUNTS } from '@/lib/auth-store';
 import {
@@ -21,8 +22,15 @@ import {
 import { cn } from '@/lib/utils';
 
 export default function LoginPage() {
+  const router = useRouter();
   const { login, register, isAuthenticated } = useAuth();
   const [tab, setTab] = useState<'login' | 'register'>('login');
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/');
+    }
+  }, [isAuthenticated, router]);
 
   // Form states
   const [email, setEmail] = useState('');
@@ -40,7 +48,7 @@ export default function LoginPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -51,17 +59,22 @@ export default function LoginPage() {
     }
 
     setIsSubmitting(true);
-    const result = login(email, password);
+    try {
+      const result = await login(email, password);
 
-    if (!result.success) {
-      setErrorMessage(result.error || 'Ошибка при входе');
+      if (!result.success) {
+        setErrorMessage(result.error || 'Ошибка при входе');
+        setIsSubmitting(false);
+      } else {
+        setSuccessMessage('Успешная авторизация! Перенаправление...');
+      }
+    } catch {
+      setErrorMessage('Ошибка соединения с сервером.');
       setIsSubmitting(false);
-    } else {
-      setSuccessMessage('Успешная авторизация! Перенаправление...');
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -77,30 +90,47 @@ export default function LoginPage() {
     }
 
     setIsSubmitting(true);
-    const result = register({
-      email,
-      passwordHash: password,
-      name,
-      company: company || 'Частный риелтор',
-      position: position || (role === 'analyst' ? 'Аналитик СМА' : 'Риелтор'),
-      role,
-    });
+    try {
+      const result = await register({
+        email,
+        passwordHash: password,
+        name,
+        company: company || 'Частный риелтор',
+        position: position || (role === 'analyst' ? 'Аналитик СМА' : 'Риелтор'),
+        role,
+      });
 
-    if (!result.success) {
-      setErrorMessage(result.error || 'Ошибка при регистрации');
+      if (!result.success) {
+        setErrorMessage(result.error || 'Ошибка при регистрации');
+        setIsSubmitting(false);
+      } else {
+        setSuccessMessage('Аккаунт успешно создан! Перенаправление...');
+      }
+    } catch {
+      setErrorMessage('Ошибка соединения с сервером.');
       setIsSubmitting(false);
-    } else {
-      setSuccessMessage('Аккаунт успешно создан! Авторизация...');
     }
   };
 
   // Quick Demo Login Handler
-  const handleQuickDemoLogin = (demoEmail: string, demoPass: string) => {
+  const handleQuickDemoLogin = async (demoEmail: string, demoPass: string) => {
     setEmail(demoEmail);
     setPassword(demoPass);
-    const result = login(demoEmail, demoPass);
-    if (result.success) {
-      setSuccessMessage(`Вход выполнен! Добро пожаловать, ${result.user?.profile.name}!`);
+    setIsSubmitting(true);
+    try {
+      const result = await login(demoEmail, demoPass);
+      if (result.success) {
+        setSuccessMessage(`Вход выполнен! Добро пожаловать, ${result.user?.profile.name}!`);
+        setTimeout(() => {
+          router.push('/');
+        }, 500);
+      } else {
+        setErrorMessage(result.error || 'Ошибка входа');
+      }
+    } catch {
+      setErrorMessage('Ошибка соединения с сервером.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

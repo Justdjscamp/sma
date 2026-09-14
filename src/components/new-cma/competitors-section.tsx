@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Property } from '@/types';
+import { Property, PropertyTag, TagColor } from '@/types';
 import { CompetitorCard } from './competitor-card';
 import { validateRealEstateUrl } from '@/lib/validators';
-import { Plus, Users, AlertCircle, Link as LinkIcon, RefreshCw, ListPlus, X, CheckCircle2, Loader2 } from 'lucide-react';
+import { PRESET_TAGS, TAG_COLORS_LIST, getTagColorMeta } from '@/lib/tag-helpers';
+import { Plus, Users, AlertCircle, Link as LinkIcon, RefreshCw, ListPlus, X, CheckCircle2, Loader2, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CompetitorsSectionProps {
@@ -28,6 +29,12 @@ export function CompetitorsSection({
   const [quickError, setQuickError] = useState<string | null>(null);
   const [quickSuccess, setQuickSuccess] = useState<string | null>(null);
   const quickInputRef = useRef<HTMLInputElement>(null);
+
+  // Tag selection for new competitors
+  const [selectedTag, setSelectedTag] = useState<PropertyTag | null>(null);
+  const [isCustomTagOpen, setIsCustomTagOpen] = useState(false);
+  const [customTagText, setCustomTagText] = useState('');
+  const [customTagColor, setCustomTagColor] = useState<TagColor>('rose');
 
   // Batch add modal
   const [isBatchOpen, setIsBatchOpen] = useState(false);
@@ -76,9 +83,11 @@ export function CompetitorsSection({
           ...result.data,
           id: `comp-${Date.now()}`,
           url: quickUrl,
+          tag: selectedTag || undefined,
         };
         onAddCompetitorWithData(newComp);
         setQuickUrl('');
+        setSelectedTag(null);
         setQuickSuccess(`✅ Конкурент добавлен: ${result.data.address || 'Объект загружен'}`);
         quickInputRef.current?.focus();
       } else {
@@ -257,6 +266,132 @@ export function CompetitorsSection({
               <div className="mt-2.5 px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 <span>{quickSuccess}</span>
+              </div>
+            )}
+
+            {/* Tag selector bar */}
+            <div className="mt-3 pt-3 border-t border-slate-200/70 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                <Tag className="w-3.5 h-3.5 text-slate-400" /> Метка объекта:
+              </span>
+
+              {/* Preset Tag chips */}
+              {PRESET_TAGS.map((preset) => {
+                const isSelected = selectedTag?.text === preset.text;
+                const meta = getTagColorMeta(preset.color);
+                return (
+                  <button
+                    key={preset.text}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedTag(null);
+                      } else {
+                        setSelectedTag(preset);
+                      }
+                    }}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer',
+                      isSelected
+                        ? `${meta.lightBadgeClass} ring-2 ring-blue-500 shadow-xs`
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    <span className={cn('w-2 h-2 rounded-full shrink-0', meta.dotClass)} />
+                    {preset.text}
+                  </button>
+                );
+              })}
+
+              {/* Custom tag button */}
+              <button
+                type="button"
+                onClick={() => setIsCustomTagOpen(!isCustomTagOpen)}
+                className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer',
+                  selectedTag && !PRESET_TAGS.some((p) => p.text === selectedTag.text)
+                    ? 'bg-blue-50 text-blue-700 border-blue-300 ring-2 ring-blue-400'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                )}
+              >
+                + Свой тег...
+              </button>
+
+              {/* Clear tag button if selected */}
+              {selectedTag && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTag(null)}
+                  className="text-slate-400 hover:text-rose-500 text-xs px-1.5 py-0.5 rounded transition-colors"
+                  title="Очистить метку"
+                >
+                  ✕ Сбросить
+                </button>
+              )}
+            </div>
+
+            {/* Custom Tag creator panel */}
+            {isCustomTagOpen && (
+              <div className="mt-2.5 p-3 bg-white rounded-xl border border-slate-200 shadow-sm space-y-2.5 text-xs animate-in fade-in slide-in-from-top-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={customTagText}
+                    onChange={(e) => setCustomTagText(e.target.value)}
+                    placeholder="Название метки (например, Видовая, Под апартаменты)..."
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-blue-500 font-medium text-slate-900"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (customTagText.trim()) {
+                          setSelectedTag({ text: customTagText.trim(), color: customTagColor });
+                          setIsCustomTagOpen(false);
+                        }
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!customTagText.trim()}
+                    onClick={() => {
+                      if (customTagText.trim()) {
+                        setSelectedTag({ text: customTagText.trim(), color: customTagColor });
+                        setIsCustomTagOpen(false);
+                      }
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold px-3.5 py-1.5 rounded-lg transition-all"
+                  >
+                    Применить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomTagOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 p-1.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {/* Color dots picker */}
+                <div className="flex items-center gap-3 pt-0.5">
+                  <span className="text-slate-500 font-medium">Цвет метки:</span>
+                  <div className="flex items-center gap-2">
+                    {TAG_COLORS_LIST.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setCustomTagColor(c.id)}
+                        className={cn(
+                          'w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer',
+                          c.dotClass,
+                          customTagColor === c.id
+                            ? 'ring-2 ring-offset-2 ring-slate-800 scale-110 shadow-xs'
+                            : 'opacity-70 hover:opacity-100 hover:scale-105'
+                        )}
+                        title={c.label}
+                      />
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>

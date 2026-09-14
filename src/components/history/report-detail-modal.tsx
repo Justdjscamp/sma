@@ -1,6 +1,6 @@
 'use client';
 
-import { Report } from '@/types';
+import { Report, UserProfile, CmaAdjustments } from '@/types';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/formatters';
 import { exportReportToExcel } from '@/lib/excel-export';
 import Link from 'next/link';
@@ -8,7 +8,6 @@ import { X, Printer, FileSpreadsheet, MapPin, Building2, Calendar, CheckCircle2,
 import { useState, useEffect } from 'react';
 import { PdfReportModal } from '@/components/new-cma/pdf-report-modal';
 import { getStoredProfile } from '@/lib/user-store';
-import { UserProfile } from '@/types';
 
 interface ReportDetailModalProps {
   report: Report | null;
@@ -30,12 +29,14 @@ export function ReportDetailModal({ report, onClose }: ReportDetailModalProps) {
   const competitors = report.competitors || [];
   const count = competitors.length;
 
-  const adjustments = report.adjustments || {
+  const adjustments: CmaAdjustments = {
     floorAdjustment: 0,
-    renovationAdjustment: 5,
+    renovationAdjustment: 0,
+    competitorsAdjustment: 0,
     balconyAdjustment: 0,
     demandAdjustment: 0,
     legalAdjustment: 0,
+    ...(report.adjustments || {}),
   };
 
   const handleExportExcel = () => {
@@ -50,6 +51,7 @@ export function ReportDetailModal({ report, onClose }: ReportDetailModalProps) {
         targetProperty={target}
         competitors={competitors}
         adjustments={adjustments}
+        searchParamsDescription={report.searchParamsDescription}
         user={userProfile || {
           name: report.author || 'Пользователь СМА',
           phone: '',

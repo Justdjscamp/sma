@@ -21,10 +21,10 @@ export function ProfileForm({ initialProfile }: ProfileFormProps) {
     }
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     saveProfile(profile);
-    updateActiveUserProfile(profile);
+    await updateActiveUserProfile(profile);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };

@@ -1,3 +1,10 @@
+export type TagColor = 'rose' | 'amber' | 'emerald' | 'blue' | 'purple' | 'slate';
+
+export interface PropertyTag {
+  text: string;
+  color: TagColor;
+}
+
 export interface Property {
   id: string;
   url: string;
@@ -18,14 +25,16 @@ export interface Property {
   hasBalcony?: boolean;
   description?: string;
   source?: 'avito' | 'cian';
+  tag?: PropertyTag;
 }
 
 export interface CmaAdjustments {
-  floorAdjustment: number; // e.g. -10, -3, 0, 2
+  floorAdjustment: number; // e.g. -10, -3, 0, 2, 5
   renovationAdjustment: number; // e.g. -10, -5, 0, 5, 20
-  balconyAdjustment: number; // e.g. -3, 0, 2
+  competitorsAdjustment: number; // e.g. -10, -3, -2, -1, 0, 1, 2, 3, 5
+  balconyAdjustment: number; // e.g. -6, -3, -2, 0, 2
   demandAdjustment: number; // e.g. -3, 0, 3
-  legalAdjustment: number; // e.g. -6, -5, -2, 0
+  legalAdjustment: number; // e.g. -3, -2, 0
 }
 
 export interface AggregatorEstimate {
@@ -53,6 +62,7 @@ export interface Report {
   maxPrice?: number;
   avgPricePerSqm?: number;
   adjustments?: CmaAdjustments;
+  searchParamsDescription?: string;
   aggregatorEstimates?: AggregatorEstimate[];
   conclusions?: string[];
 }

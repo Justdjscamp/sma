@@ -15,7 +15,8 @@ import { saveReport, generateReportId } from '@/lib/reports-store';
 import { getStoredProfile } from '@/lib/user-store';
 import { validateRealEstateUrl } from '@/lib/validators';
 import { exportReportToExcel } from '@/lib/excel-export';
-import { Link as LinkIcon, RefreshCw, Sparkles, CheckCircle2, Save, FileSpreadsheet, PlayCircle } from 'lucide-react';
+import { calculateCmaAnalytics } from '@/lib/cma-calculator';
+import { FileText, Link as LinkIcon, RefreshCw, Sparkles, CheckCircle2, Save, FileSpreadsheet, PlayCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function NewCmaPage() {
@@ -25,6 +26,7 @@ export default function NewCmaPage() {
   const [competitors, setCompetitors] = useState<Property[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [searchParamsDescription, setSearchParamsDescription] = useState<string>('');
 
   // Aggregators & Conclusions State
   const [aggregatorEstimates, setAggregatorEstimates] = useState<AggregatorEstimate[]>([
@@ -34,6 +36,14 @@ export default function NewCmaPage() {
     { id: 'domclick', name: 'Домклик', estimate: 0, minEstimate: 0, maxEstimate: 0, url: '' },
   ]);
   const [conclusions, setConclusions] = useState<string[]>(DEFAULT_CONCLUSIONS);
+
+  // Default parameters text for competitor selection
+  const defaultParamsDesc = `В районе ${competitors.filter((c) => c.price > 0).length || 9} объектов с параметрами:
+1. ${targetProperty.rooms}-к квартира: ${targetProperty.area} м²
+2. Материал постройки: ${targetProperty.buildingMaterial || 'панельные'}
+3. Локация: ${targetProperty.address || 'г. Санкт-Петербург'}
+4. Этаж: ${targetProperty.floor > 1 ? 'Не первый' : '1 этаж'}
+5. Год постройки: от ${targetProperty.yearBuilt ? (targetProperty.yearBuilt > 1970 ? 1970 : targetProperty.yearBuilt) : 1970} года`;
 
   // Helper to load sample demo data on demand
   const handleLoadDemo = () => {
@@ -56,28 +66,20 @@ export default function NewCmaPage() {
     if (loaded) setUserProfile(loaded);
   }, []);
 
-  // Math Adjustments State (ТЗ 2.3)
+  // Math Adjustments State (ТЗ 2.3 - 6 категорий таблицы Хасанова)
   const [adjustments, setAdjustments] = useState<CmaAdjustments>({
     floorAdjustment: 0,
-    renovationAdjustment: 5,
+    renovationAdjustment: 0,
+    competitorsAdjustment: 0,
     balconyAdjustment: 0,
     demandAdjustment: 0,
     legalAdjustment: 0,
   });
 
-  // Calculate recommended price
-  const activeCompetitors = competitors.filter((c) => c.price > 0);
-  const priceSqms = activeCompetitors.map((c) => c.pricePerSqm);
-  const avgPriceSqm = priceSqms.length > 0 ? Math.round(priceSqms.reduce((a, b) => a + b, 0) / priceSqms.length) : targetProperty.pricePerSqm;
-  const totalAdjPercent =
-    adjustments.floorAdjustment +
-    adjustments.renovationAdjustment +
-    adjustments.balconyAdjustment +
-    adjustments.demandAdjustment +
-    adjustments.legalAdjustment;
-
-  const basePrice = targetProperty.area * avgPriceSqm;
-  const recommendedPrice = Math.round(basePrice * (1 + totalAdjPercent / 100));
+  // Calculate analytics strictly using standard spreadsheet formulas
+  const analytics = calculateCmaAnalytics(targetProperty, competitors, adjustments);
+  const recommendedPrice = analytics.adjustedMidPrice;
+  const avgPriceSqm = analytics.adjustedMidSqm;
 
   // Save Report Handler
   const handleSaveToHistory = () => {
@@ -92,10 +94,11 @@ export default function NewCmaPage() {
       property: targetProperty,
       competitors: competitors,
       recommendedPrice: recommendedPrice,
-      minPrice: Math.round(recommendedPrice * 0.95),
-      maxPrice: Math.round(recommendedPrice * 1.05),
+      minPrice: analytics.adjustedLowPrice,
+      maxPrice: analytics.adjustedHighPrice,
       avgPricePerSqm: avgPriceSqm,
       adjustments: adjustments,
+      searchParamsDescription: searchParamsDescription || defaultParamsDesc,
       aggregatorEstimates: aggregatorEstimates,
       conclusions: conclusions,
     };
@@ -117,6 +120,7 @@ export default function NewCmaPage() {
       competitors: competitors,
       recommendedPrice: recommendedPrice,
       adjustments: adjustments,
+      searchParamsDescription: searchParamsDescription || defaultParamsDesc,
     };
     exportReportToExcel(reportToExport);
   };
@@ -241,6 +245,8 @@ export default function NewCmaPage() {
         competitors={competitors}
         adjustments={adjustments}
         user={userProfile}
+        searchParamsDescription={searchParamsDescription || defaultParamsDesc}
+        onUpdateSearchParamsDescription={setSearchParamsDescription}
         aggregatorEstimates={aggregatorEstimates}
         conclusions={conclusions}
       />
@@ -333,6 +339,36 @@ export default function NewCmaPage() {
               adjustments={adjustments}
               onChange={setAdjustments}
             />
+
+            {/* Editable Search Parameters Description (Для отчёта PDF) */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-[0_2px_12px_-3px_rgba(0,0,0,0.05)] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-amber-600" />
+                    Параметры выборки аналогов (для отчёта PDF)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Редактируемый блок «В районе X объектов с параметрами: ...» для страницы анализа конкурентов
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSearchParamsDescription(defaultParamsDesc)}
+                  className="text-xs font-semibold text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200 transition-all cursor-pointer"
+                >
+                  Автозаполнение
+                </button>
+              </div>
+
+              <textarea
+                rows={5}
+                value={searchParamsDescription || defaultParamsDesc}
+                onChange={(e) => setSearchParamsDescription(e.target.value)}
+                placeholder="Укажите критерии выборки аналогов..."
+                className="w-full text-xs p-3.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600 transition-all font-mono leading-relaxed text-slate-800"
+              />
+            </div>
 
             {/* Competitors Section */}
             <CompetitorsSection

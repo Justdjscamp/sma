@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { UserAccount, UserProfile } from '@/types';
 import {
   getCurrentSessionUser,
+  fetchServerSessionUser,
   authenticateUser,
   registerUser,
   logoutUser,
@@ -16,31 +17,55 @@ interface AuthContextType {
   profile: UserProfile | null;
   isAuthenticated: boolean;
   loading: boolean;
-  login: typeof authenticateUser;
-  register: typeof registerUser;
-  logout: () => void;
-  switchUser: (userId: string) => void;
+  login: (email: string, password: string) => Promise<{ success: boolean; user?: UserAccount; error?: string }>;
+  register: (params: {
+    email: string;
+    passwordHash: string;
+    name: string;
+    company?: string;
+    position?: string;
+    role?: any;
+    phone?: string;
+  }) => Promise<{ success: boolean; user?: UserAccount; error?: string }>;
+  logout: () => Promise<void>;
+  switchUser: (userId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserAccount | null>(null);
+  const [user, setUser] = useState<UserAccount | null>(() => getCurrentSessionUser());
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
-  const refreshAuth = () => {
-    const current = getCurrentSessionUser();
-    setUser(current);
-    setLoading(false);
+  const refreshAuth = async () => {
+    // 1. Quick sync from local cache
+    const currentCached = getCurrentSessionUser();
+    if (currentCached) {
+      setUser(currentCached);
+    }
+    // 2. Validate with server
+    try {
+      const serverUser = await fetchServerSessionUser();
+      if (serverUser) {
+        setUser(serverUser);
+      } else {
+        setUser(null);
+      }
+    } catch {
+      // Keep cached if offline
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     refreshAuth();
 
     const handleAuthChange = () => {
-      refreshAuth();
+      const current = getCurrentSessionUser();
+      setUser(current);
     };
 
     window.addEventListener('cma_auth_state_changed', handleAuthChange);
@@ -59,16 +84,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, pathname, router]);
 
-  const handleLogout = () => {
-    logoutUser();
+  const handleLogin = async (email: string, pass: string) => {
+    const res = await authenticateUser(email, pass);
+    if (res.success && res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
+  const handleRegister = async (params: {
+    email: string;
+    passwordHash: string;
+    name: string;
+    company?: string;
+    position?: string;
+    role?: any;
+    phone?: string;
+  }) => {
+    const res = await registerUser(params);
+    if (res.success && res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
+  const handleLogout = async () => {
+    await logoutUser();
     setUser(null);
     router.push('/login');
   };
 
-  const handleSwitchUser = (userId: string) => {
+  const handleSwitchUser = async (userId: string) => {
     const target = DEMO_ACCOUNTS.find((a) => a.id === userId);
     if (target) {
-      authenticateUser(target.email, target.passwordHash);
+      await handleLogin(target.email, '123456');
     }
   };
 
@@ -79,8 +128,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile: user ? user.profile : null,
         isAuthenticated: Boolean(user),
         loading,
-        login: authenticateUser,
-        register: registerUser,
+        login: handleLogin,
+        register: handleRegister,
         logout: handleLogout,
         switchUser: handleSwitchUser,
       }}

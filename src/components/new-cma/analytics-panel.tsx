@@ -1,9 +1,9 @@
 'use client';
 
 import { Property, CmaAdjustments } from '@/types';
+import { calculateCmaAnalytics } from '@/lib/cma-calculator';
 import { formatCurrency, formatNumber } from '@/lib/formatters';
-import { FileDown, TrendingUp, TrendingDown, Award, BarChart3, CheckCircle2, Scale } from 'lucide-react';
-import { useState } from 'react';
+import { FileDown, TrendingUp, TrendingDown, Award, BarChart3, Scale } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface AnalyticsPanelProps {
@@ -19,53 +19,19 @@ export function AnalyticsPanel({
   adjustments,
   onOpenPdfModal,
 }: AnalyticsPanelProps) {
-  // Compute analytics from active competitors with prices
-  const activeCompetitors = competitors.filter((c) => c.price > 0);
-  const prices = activeCompetitors.map((c) => c.price);
-  const priceSqms = activeCompetitors.map((c) => c.pricePerSqm);
+  const analytics = calculateCmaAnalytics(targetProperty, competitors, adjustments);
 
-  const count = activeCompetitors.length;
+  const count = analytics.activeCount;
+  const recommendedPrice = analytics.adjustedMidPrice;
+  const totalAdjPercent = analytics.totalAdjustmentPercent;
 
-  const avgPrice = count > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / count) : targetProperty.price;
-  const avgPriceSqm = count > 0 ? Math.round(priceSqms.reduce((a, b) => a + b, 0) / count) : targetProperty.pricePerSqm;
-  const minPrice = count > 0 ? Math.min(...prices) : targetProperty.price;
-  const maxPrice = count > 0 ? Math.max(...prices) : targetProperty.price;
+  // Financial Corridor (С учетом корректировок по ТЗ и стандарту таблицы)
+  const corridorLow = analytics.adjustedLowPrice;
+  const corridorMid = analytics.adjustedMidPrice;
+  const corridorHigh = analytics.adjustedHighPrice;
 
-  // Calculate Median
-  const sortedPrices = [...prices].sort((a, b) => a - b);
-  let medianPrice = targetProperty.price;
-  if (count > 0) {
-    const mid = Math.floor(count / 2);
-    medianPrice = count % 2 !== 0 ? sortedPrices[mid] : Math.round((sortedPrices[mid - 1] + sortedPrices[mid]) / 2);
-  }
-
-  // Calculate total adjustments %
-  const totalAdjPercent =
-    adjustments.floorAdjustment +
-    adjustments.renovationAdjustment +
-    adjustments.balconyAdjustment +
-    adjustments.demandAdjustment +
-    adjustments.legalAdjustment;
-
-  // Base recommended price from area * avgPriceSqm
-  const basePrice = targetProperty.area * avgPriceSqm;
-  // Recommended price adjusted by total adjustments %
-  const recommendedPrice = Math.round(basePrice * (1 + totalAdjPercent / 100));
-
-  // Financial Corridor (ТЗ 2.3 п. 4: Низ, Среднее, Верх)
-  const corridorLow = Math.round(recommendedPrice * 0.95);
-  const corridorMid = recommendedPrice;
-  const corridorHigh = Math.round(recommendedPrice * 1.05);
-
-  // Market Deviation % (Отклонение цены целевого объекта от рыночной удельной)
-  const deviationPercent = avgPriceSqm > 0
-    ? Math.round(((targetProperty.pricePerSqm - avgPriceSqm) / avgPriceSqm) * 100)
-    : 0;
-
-  // TOP 3 cheapest & TOP 3 expensive
-  const sortedByPrice = [...activeCompetitors].sort((a, b) => a.price - b.price);
-  const topCheapest = sortedByPrice.slice(0, 3);
-  const topExpensive = sortedByPrice.slice(-3).reverse();
+  // Deviation %
+  const deviationPercent = analytics.deviationMidPercent;
 
   return (
     <div className="space-y-5 sticky top-24">
@@ -79,7 +45,7 @@ export function AnalyticsPanel({
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Рекомендуемая стоимость
+              Итоговая расчетная стоимость
             </div>
             {totalAdjPercent !== 0 && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -95,7 +61,7 @@ export function AnalyticsPanel({
           <div className="flex items-center justify-between text-xs text-slate-300 pt-2 border-t border-slate-700/60">
             <span>Рассчитано по {count} объектам</span>
             <span className="font-semibold text-emerald-300">
-              ~{formatNumber(Math.round(recommendedPrice / (targetProperty.area || 1)))} ₽/м²
+              {formatNumber(analytics.adjustedMidSqm)} ₽/м²
             </span>
           </div>
         </div>
@@ -108,23 +74,26 @@ export function AnalyticsPanel({
             <Scale className="w-4 h-4 text-blue-600" />
             Финансовый коридор СМА
           </h3>
-          <span className="text-[10px] font-semibold text-slate-400">Диапазон продаж</span>
+          <span className="text-[10px] font-semibold text-slate-400">С учетом корректировок</span>
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-center pt-1">
           <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-[10px] text-slate-400 font-semibold block uppercase">Низ (быстро)</span>
             <span className="text-xs font-bold text-slate-700 mt-1 block">{formatCurrency(corridorLow)}</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">{formatNumber(analytics.adjustedLowSqm)} ₽/м²</span>
           </div>
 
           <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-100">
             <span className="text-[10px] text-blue-600 font-semibold block uppercase">Среднее</span>
             <span className="text-xs font-bold text-blue-700 mt-1 block">{formatCurrency(corridorMid)}</span>
+            <span className="text-[10px] text-blue-600 font-bold block mt-0.5">{formatNumber(analytics.adjustedMidSqm)} ₽/м²</span>
           </div>
 
           <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-[10px] text-slate-400 font-semibold block uppercase">Верх (макс)</span>
             <span className="text-xs font-bold text-slate-700 mt-1 block">{formatCurrency(corridorHigh)}</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">{formatNumber(analytics.adjustedHighSqm)} ₽/м²</span>
           </div>
         </div>
       </div>
@@ -160,47 +129,42 @@ export function AnalyticsPanel({
 
         <div className="space-y-2 text-xs">
           <div className="flex items-center justify-between py-1.5 border-b border-slate-100/60">
-            <span className="text-slate-500 font-medium">Средняя цена аналогов</span>
-            <span className="font-bold text-slate-900">{formatCurrency(avgPrice)}</span>
+            <span className="text-slate-500 font-medium">Общее среднее рынка (B20)</span>
+            <span className="font-bold text-slate-900">{formatNumber(analytics.marketAvgSqm)} ₽/м²</span>
           </div>
 
           <div className="flex items-center justify-between py-1.5 border-b border-slate-100/60">
-            <span className="text-slate-500 font-medium">Средняя цена за м²</span>
-            <span className="font-bold text-blue-600">{formatNumber(avgPriceSqm)} ₽</span>
-          </div>
-
-          <div className="flex items-center justify-between py-1.5 border-b border-slate-100/60">
-            <span className="text-slate-500 font-medium">Медианная цена</span>
-            <span className="font-bold text-slate-900">{formatCurrency(medianPrice)}</span>
+            <span className="text-slate-500 font-medium">Базовая цена (с учетом торга −2%)</span>
+            <span className="font-bold text-blue-600">{formatNumber(analytics.baseMarketPriceSqm)} ₽/м²</span>
           </div>
 
           <div className="flex items-center justify-between py-1.5 border-b border-slate-100/60">
             <span className="text-slate-500 font-medium flex items-center gap-1 text-emerald-600">
-              <TrendingDown className="w-3.5 h-3.5" /> Минимальная
+              <TrendingDown className="w-3.5 h-3.5" /> Среднее 3 дешевых
             </span>
-            <span className="font-bold text-slate-900">{formatCurrency(minPrice)}</span>
+            <span className="font-bold text-slate-900">{formatNumber(analytics.avgCheapSqm)} ₽/м²</span>
           </div>
 
           <div className="flex items-center justify-between py-1.5">
             <span className="text-slate-500 font-medium flex items-center gap-1 text-rose-600">
-              <TrendingUp className="w-3.5 h-3.5" /> Максимальная
+              <TrendingUp className="w-3.5 h-3.5" /> Среднее 3 дорогих
             </span>
-            <span className="font-bold text-slate-900">{formatCurrency(maxPrice)}</span>
+            <span className="font-bold text-slate-900">{formatNumber(analytics.avgExpensiveSqm)} ₽/м²</span>
           </div>
         </div>
       </div>
 
-      {/* TOP 3 Cheapest & Expensive */}
+      {/* TOP 3 Cheapest & Expensive per sqm */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.04)] space-y-4">
         <div>
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1 text-emerald-600">
-            <TrendingDown className="w-3.5 h-3.5" /> ТОП-3 Самых дешевых
+            <TrendingDown className="w-3.5 h-3.5" /> ТОП-3 Самых дешевых (за м²)
           </h4>
           <div className="space-y-1.5">
-            {topCheapest.map((item, i) => (
-              <div key={item.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-emerald-50/50 border border-emerald-100">
-                <span className="truncate max-w-[150px] font-medium text-slate-700">#{i + 1} {item.address}</span>
-                <span className="font-bold text-emerald-700">{formatCurrency(item.price)}</span>
+            {analytics.topCheapestSqms.map((item, i) => (
+              <div key={item.id || i} className="flex items-center justify-between text-xs p-2 rounded-lg bg-emerald-50/50 border border-emerald-100">
+                <span className="truncate max-w-[150px] font-medium text-slate-700">#{i + 1} {item.address || 'Конкурент'}</span>
+                <span className="font-bold text-emerald-700">{formatNumber(item.pricePerSqm)} ₽/м²</span>
               </div>
             ))}
           </div>
@@ -208,13 +172,13 @@ export function AnalyticsPanel({
 
         <div>
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1 text-rose-600">
-            <TrendingUp className="w-3.5 h-3.5" /> ТОП-3 Самых дорогих
+            <TrendingUp className="w-3.5 h-3.5" /> ТОП-3 Самых дорогих (за м²)
           </h4>
           <div className="space-y-1.5">
-            {topExpensive.map((item, i) => (
-              <div key={item.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-rose-50/50 border border-rose-100">
-                <span className="truncate max-w-[150px] font-medium text-slate-700">#{i + 1} {item.address}</span>
-                <span className="font-bold text-rose-700">{formatCurrency(item.price)}</span>
+            {analytics.topExpensiveSqms.map((item, i) => (
+              <div key={item.id || i} className="flex items-center justify-between text-xs p-2 rounded-lg bg-rose-50/50 border border-rose-100">
+                <span className="truncate max-w-[150px] font-medium text-slate-700">#{i + 1} {item.address || 'Конкурент'}</span>
+                <span className="font-bold text-rose-700">{formatNumber(item.pricePerSqm)} ₽/м²</span>
               </div>
             ))}
           </div>
@@ -224,7 +188,7 @@ export function AnalyticsPanel({
       {/* Action Button: Generate PDF */}
       <button
         onClick={onOpenPdfModal}
-        className="w-full py-4 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base shadow-lg shadow-blue-600/25 active:scale-[0.99] transition-all duration-200 flex items-center justify-center gap-2"
+        className="w-full py-4 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base shadow-lg shadow-blue-600/25 active:scale-[0.99] transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
       >
         <FileDown className="w-5 h-5" />
         Сформировать PDF
