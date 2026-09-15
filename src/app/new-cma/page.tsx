@@ -12,12 +12,13 @@ import { ConclusionsSection, DEFAULT_CONCLUSIONS } from '@/components/new-cma/co
 import { EMPTY_TARGET_PROPERTY, DEMO_TARGET_PROPERTY, INITIAL_COMPETITORS, INITIAL_USER } from '@/lib/mock-data';
 import { Property, CmaAdjustments, Report, UserProfile, AggregatorEstimate } from '@/types';
 import { saveReport, generateReportId } from '@/lib/reports-store';
-import { getStoredProfile } from '@/lib/user-store';
 import { validateRealEstateUrl } from '@/lib/validators';
 import { exportReportToExcel } from '@/lib/excel-export';
 import { calculateCmaAnalytics } from '@/lib/cma-calculator';
 import { FileText, Link as LinkIcon, RefreshCw, Sparkles, CheckCircle2, Save, FileSpreadsheet, PlayCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { cleanAddressString } from '@/lib/parsers/address-sanitizer';
+import { getStoredProfile } from '@/lib/user-store';
 
 export default function NewCmaPage() {
   const [targetPropertyUrl, setTargetPropertyUrl] = useState('');
@@ -145,9 +146,11 @@ export default function NewCmaPage() {
       const result = await res.json();
 
       if (result.success && result.data) {
+        const cleanAddr = result.data.address ? cleanAddressString(result.data.address) : '';
         setTargetProperty((prev) => ({
           ...prev,
           ...result.data,
+          address: cleanAddr || result.data.address,
           id: prev.id,
           url: targetPropertyUrl,
         }));
@@ -190,7 +193,11 @@ export default function NewCmaPage() {
   // Add competitor with already-parsed data (for quick add and batch add)
   const handleAddCompetitorWithData = (data: Property) => {
     if (competitors.length >= 20) return;
-    setCompetitors((prev) => [...prev, data]);
+    const sanitizedData = {
+      ...data,
+      address: data.address ? cleanAddressString(data.address) : data.address,
+    };
+    setCompetitors((prev) => [...prev, sanitizedData]);
   };
 
   const handleUpdateCompetitor = (index: number, updated: Property) => {

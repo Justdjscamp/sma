@@ -7,6 +7,7 @@ import { getTagBadgeClasses } from '@/lib/tag-helpers';
 import { X, Printer, ExternalLink, MapPin, Building2, Edit3, Check, RotateCcw } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { cleanAddressString } from '@/lib/parsers/address-sanitizer';
 
 interface PdfReportModalProps {
   isOpen: boolean;
@@ -39,11 +40,13 @@ export function PdfReportModal({
   const [mounted, setMounted] = useState(false);
   const [isEditingParams, setIsEditingParams] = useState(false);
 
+  const cleanTargetAddress = cleanAddressString(targetProperty.address || '') || 'г. Санкт-Петербург';
+
   // Default parameters text for competitor selection
-  const defaultParamsText = `В районе 9 объектов с параметрами:
+  const defaultParamsText = `В районе ${competitors.filter((c) => c.price > 0).length || 9} объектов с параметрами:
 1. ${targetProperty.rooms}-к квартира: ${targetProperty.area} м²
 2. Материал постройки: ${targetProperty.buildingMaterial || 'панельные'}
-3. Локация: ${targetProperty.address || 'г. Санкт-Петербург'}
+3. Локация: ${cleanTargetAddress}
 4. Этаж: ${targetProperty.floor > 1 ? 'Не первый' : '1 этаж'}
 5. Год постройки: от ${targetProperty.yearBuilt ? (targetProperty.yearBuilt > 1970 ? 1970 : targetProperty.yearBuilt) : 1970} года`;
 
@@ -58,8 +61,10 @@ export function PdfReportModal({
   useEffect(() => {
     if (searchParamsDescription) {
       setLocalSearchParams(searchParamsDescription);
+    } else {
+      setLocalSearchParams(defaultParamsText);
     }
-  }, [searchParamsDescription]);
+  }, [searchParamsDescription, defaultParamsText]);
 
   if (!isOpen || !mounted) return null;
 
@@ -268,7 +273,7 @@ export function PdfReportModal({
                   <div className="pb-1.5 border-b border-slate-200">
                     <span className="text-slate-500 font-medium block text-[10px]">Адрес объекта:</span>
                     <span className="font-bold text-amber-800 truncate block">
-                      {targetProperty.address || 'г. Санкт-Петербург'}
+                      {cleanTargetAddress}
                     </span>
                   </div>
 
@@ -344,12 +349,7 @@ export function PdfReportModal({
               {/* Static Map */}
               <div className="md:col-span-5 rounded-lg overflow-hidden border border-slate-200 h-48 bg-slate-100 flex items-center justify-center relative shadow-xs group">
                 {(() => {
-                  const rawMapAddress = (targetProperty.address || 'Санкт-Петербург')
-                    .split(/На карте|Шоурум|Офис продаж/i)[0]
-                    .replace(/(?:[А-Яа-яA-Za-z]+)\d+\s*мин.*/gi, '')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                  const encodedMapAddr = encodeURIComponent(rawMapAddress || 'Санкт-Петербург');
+                  const encodedMapAddr = encodeURIComponent(cleanTargetAddress);
                   const mapSrc = `/api/map?address=${encodedMapAddr}`;
                   const yandexMapsUrl = `https://yandex.ru/maps/?text=${encodedMapAddr}`;
 
@@ -363,14 +363,9 @@ export function PdfReportModal({
                     >
                       <img
                         src={mapSrc}
-                        alt="Карта Яндекса"
+                        alt="Карта объекта"
                         className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLElement).setAttribute(
-                            'src',
-                            'https://static-maps.yandex.ru/1.x/?l=map&size=600,280&z=12&ll=30.315868,59.939095&pt=30.315868,59.939095,pm2rdm'
-                          );
-                        }}
+                        loading="lazy"
                       />
                       <div className="absolute inset-0 bg-black/10 group-hover:bg-black/5 transition-colors flex items-end justify-between p-2">
                         <span className="bg-slate-900/90 px-2.5 py-1 rounded text-[10px] font-semibold text-amber-400 border border-amber-500/30 flex items-center gap-1 backdrop-blur-sm shadow">

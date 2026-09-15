@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { ParsedProperty, ParseResult } from './parser-types';
 import { browserPool } from './browser-pool';
+import { cleanAddressString, isSpecificStreetAddress } from './address-sanitizer';
 
 const BOT_USER_AGENTS = [
   'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
@@ -211,7 +212,7 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
 
   // 3. Извлечение адреса из ogTitle / meta
   if (ogTitle) {
-    const addrMatch = ogTitle.match(/по адресу\s+([^|—]+)/i) || ogTitle.match(/в\s+([^|-]+(?:\([^)]+\))?)/i);
+    const addrMatch = ogTitle.match(/по адресу\s+([^|—]+)/i);
     if (addrMatch) {
       address = cleanCianAddress(addrMatch[1].trim());
     }
@@ -249,8 +250,11 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
             if (offer.floorNumber && !floor) floor = Number(offer.floorNumber);
             if (offer.building?.floorsCount && !totalFloors) totalFloors = Number(offer.building.floorsCount);
             if (offer.roomsCount && !rooms) rooms = Number(offer.roomsCount);
-            if (offer.geo?.address && !address) {
-              address = cleanCianAddress(offer.geo.address.map((a: any) => a.fullName || a.name).join(', '));
+            if (offer.geo?.address) {
+              const geoFormatted = cleanCianAddress(offer.geo.address.map((a: any) => a.fullName || a.name).join(', '));
+              if (geoFormatted && (!address || isSpecificStreetAddress(geoFormatted))) {
+                address = geoFormatted;
+              }
             }
             if (offer.photos && offer.photos.length > 0 && !photo) {
               photo = offer.photos[0].fullUrl || offer.photos[0].url;
@@ -393,11 +397,7 @@ function extractCianFromHtml(html: string, url: string): ParsedProperty | null {
 
 function cleanCianAddress(addr: string): string {
   if (!addr) return '';
-  let cleaned = addr
-    .split(/На карте|Шоурум|Офис продаж/i)[0]
-    .replace(/(?:[А-Яа-яA-Za-z]+)\d+\s*мин.*/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const cleaned = cleanAddressString(addr);
   if (isCianTitle(cleaned)) return '';
   return cleaned;
 }

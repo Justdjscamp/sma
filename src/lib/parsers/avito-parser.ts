@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { ParsedProperty, ParseResult } from './parser-types';
 import { browserPool } from './browser-pool';
+import { cleanAddressString, isSpecificStreetAddress } from './address-sanitizer';
 
 const BOT_USER_AGENTS = [
   'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
@@ -129,12 +130,28 @@ function extractAvitoFromHtml(html: string, url: string): ParsedProperty | null 
     }
   }
 
-  // Извлечение адреса из Meta
-  if (ogTitle) {
-    const addrMatch = ogTitle.match(/в\s+([^,]+(?:,[^,]+)*)\s+на\s+Авито/i) || ogTitle.match(/в\s+([^,]+(?:,[^,]+)*)/i);
-    if (addrMatch) {
-      address = addrMatch[1].trim();
+  // 1.1. Извлечение точного адреса из описания og:description (например: "по адресу Санкт-Петербург, улица Народная, 10")
+  if (ogDesc) {
+    const descAddrMatch =
+      ogDesc.match(/по адресу\s+([^.]+?)(?:\s+на Авито|\.|\s*Цена|\s*—|$)/i) ||
+      ogDesc.match(/в\s+([^.]+?)(?:\s+по адресу|\s+на Авито|\.|\s*Цена|\s*—|$)/i);
+    if (descAddrMatch) {
+      const candidate = cleanAddressString(descAddrMatch[1]);
+      if (candidate) address = candidate;
     }
+  }
+
+  // 1.2. Извлечение адреса из DOM элементов (наиболее надежные селекторы карточки Avito)
+  const domAddress = cleanAddressString(
+    $('[data-marker="item-view/item-address"]').text().trim() ||
+    $('[data-marker="delivery/location"]').text().trim() ||
+    $('[itemprop="streetAddress"]').text().trim() ||
+    $('[itemprop="address"]').text().trim() ||
+    $('.item-address__string').text().trim() ||
+    $('[class*="item-address__string"]').text().trim()
+  );
+  if (domAddress && (!address || isSpecificStreetAddress(domAddress))) {
+    address = domAddress;
   }
 
   // 2. Извлечение JSON-LD
@@ -148,8 +165,20 @@ function extractAvitoFromHtml(html: string, url: string): ParsedProperty | null 
           if (json.offers?.price && !price) {
             price = Number(json.offers.price);
           }
-          if (json.name && !address) {
-            address = json.name;
+          if (json.address && (!address || !isSpecificStreetAddress(address))) {
+            if (typeof json.address === 'string') {
+              const candidate = cleanAddressString(json.address);
+              if (candidate) address = candidate;
+            } else if (typeof json.address === 'object') {
+              const parts = [
+                json.address.addressLocality || json.address.addressRegion,
+                json.address.streetAddress,
+              ].filter(Boolean);
+              if (parts.length > 0) {
+                const candidate = cleanAddressString(parts.join(', '));
+                if (candidate) address = candidate;
+              }
+            }
           }
           if (json.image && !photo) {
             photo = Array.isArray(json.image) ? json.image[0] : json.image;
@@ -160,23 +189,29 @@ function extractAvitoFromHtml(html: string, url: string): ParsedProperty | null 
   } catch {}
 
   // 3. Извлечение window.__initialData__
-  if (!price || !area) {
+  if (!price || !area || !isSpecificStreetAddress(address)) {
     const scripts = $('script').toArray();
     for (const script of scripts) {
       const content = $(script).html() || '';
       if (content.includes('window.__initialData__') || content.includes('__initialData__')) {
         try {
-          const match = content.match(/window\.__initialData__\s*=\s*("[\s\S]*?"|{[\s\S]*?});/) || content.match(/__initialData__\s*=\s*({[\s\S]*?});/);
+          const match =
+            content.match(/window\.__initialData__\s*=\s*("[\s\S]*?"|{[\s\S]*?});/) ||
+            content.match(/__initialData__\s*=\s*({[\s\S]*?});/);
           if (match && match[1]) {
             let jsonStr = match[1];
             if (jsonStr.startsWith('"')) {
               jsonStr = JSON.parse(jsonStr);
             }
             const parsed = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
-            const item = findObjectWithKeys(parsed, ['price', 'title', 'item']);
+            const item = findObjectWithKeys(parsed, ['price', 'geo', 'address', 'item']);
             if (item) {
               if (item.price && !price) price = Number(item.price);
-              if (item.title && !address) address = item.title;
+              const foundAddress = item.geo?.formattedAddress || (typeof item.address === 'string' ? item.address : null);
+              if (foundAddress && (!address || isSpecificStreetAddress(foundAddress))) {
+                const candidate = cleanAddressString(foundAddress);
+                if (candidate) address = candidate;
+              }
             }
           }
         } catch {}
@@ -184,7 +219,7 @@ function extractAvitoFromHtml(html: string, url: string): ParsedProperty | null 
     }
   }
 
-  // 4. DOM элементы
+  // 4. DOM элементы для цены
   if (!price) {
     const priceText =
       $('[data-marker="item-view/item-price"]').attr('content') ||
@@ -195,13 +230,16 @@ function extractAvitoFromHtml(html: string, url: string): ParsedProperty | null 
     if (cleanPrice) price = Number(cleanPrice);
   }
 
-  if (!address) {
-    address =
-      $('[data-marker="item-view/item-address"]').text().trim() ||
-      $('[itemprop="streetAddress"]').text().trim() ||
-      $('h1[data-marker="item-view/title-info"]').text().trim() ||
-      $('h1').text().trim();
+  // 5. Запасной вариант для адреса из ogTitle (только если адрес вообще не найден)
+  if (!address && ogTitle) {
+    const titleCityMatch = ogTitle.match(/в\s+([^|,—]+)/i);
+    if (titleCityMatch) {
+      address = cleanAddressString(titleCityMatch[1]);
+    }
   }
+
+  // Окончательная очистка адреса от любых артефактов площадки
+  address = cleanAddressString(address);
 
   // Извлечение параметров
   const fullText = (ogTitle + ' ' + ogDesc + ' ' + $('[data-marker="item-view/item-params"]').text() + ' ' + $.text()).trim();
